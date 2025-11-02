@@ -127,56 +127,77 @@
   }
 
   function showThinkingIndicator() {
-    // Remove any existing thinking indicator
+    // Remove any existing thinking indicator first
     removeThinkingIndicator();
     
     if (emptyEl) emptyEl.style.display = 'none';
 
+    // Create the thinking indicator row
     const row = document.createElement('div');
     row.className = 'msg assistant thinking';
     row.id = 'thinking-indicator';
+    row.setAttribute('data-thinking', 'true');
 
+    // Create role indicator
     const roleEl = document.createElement('div');
     roleEl.className = 'role';
     roleEl.textContent = 'A';
 
+    // Create message bubble
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     
+    // Create thinking container
     const thinkingContainer = document.createElement('div');
     thinkingContainer.className = 'thinking';
     
-    // Add dots first
+    // Add animated dots first
     for (let i = 0; i < 3; i++) {
       const dot = document.createElement('div');
       dot.className = 'thinking-dot';
       thinkingContainer.appendChild(dot);
     }
     
-    // Add text after dots
+    // Add thinking text after dots
     const thinkingText = document.createElement('span');
     thinkingText.className = 'thinking-text';
-    thinkingText.textContent = 'Thinking...';
+    thinkingText.textContent = 'AI is thinking...';
     thinkingContainer.appendChild(thinkingText);
     
+    // Assemble the message bubble
     bubble.appendChild(thinkingContainer);
     row.appendChild(roleEl);
     row.appendChild(bubble);
+    
+    // Add to chat container
     chatEl.appendChild(row);
+    
+    // Scroll to bottom to show the indicator
     chatEl.scrollTop = chatEl.scrollHeight;
     
     thinkingIndicatorId = row.id;
     
-    // Debug: log to console to verify it's showing
+    // Force a reflow to ensure animation starts
+    void row.offsetHeight;
+    
     console.log('Thinking indicator shown');
   }
 
   function removeThinkingIndicator() {
     const indicator = document.getElementById('thinking-indicator');
     if (indicator) {
-      indicator.remove();
-      thinkingIndicatorId = null;
+      // Add fade out animation
+      indicator.style.opacity = '0';
+      indicator.style.transition = 'opacity 0.3s ease-out';
+      
+      setTimeout(() => {
+        indicator.remove();
+        thinkingIndicatorId = null;
+      }, 300);
+      
       console.log('Thinking indicator removed');
+    } else {
+      thinkingIndicatorId = null;
     }
   }
 
@@ -187,6 +208,7 @@
     appendMessage('user', text.trim());
     
     // Show thinking indicator
+    console.log('Sending message, showing indicator');
     showThinkingIndicator();
 
     ensureConnected();

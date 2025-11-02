@@ -119,8 +119,9 @@
       border:1px solid rgba(14,165,233,0.3);
     }
     .msg.thinking .bubble {
-      background:rgba(17,24,39,.8);
-      border:1px solid rgba(34,211,238,0.3);
+      background:rgba(17,24,39,.9);
+      border:1px solid rgba(34,211,238,0.5);
+      box-shadow:0 2px 12px rgba(34,211,238,0.2);
     }
     form { display:flex; gap:12px; flex-direction:column; }
     textarea { 
@@ -194,17 +195,19 @@
     }
     .thinking {
       display:flex;
-      gap:8px;
+      gap:10px;
       align-items:center;
-      padding:4px 0;
+      padding:6px 0;
+      min-height:24px;
     }
     .thinking-dot {
-      width:10px;
-      height:10px;
+      width:12px;
+      height:12px;
       border-radius:50%;
       background:var(--accent);
-      animation:thinking 1.4s infinite;
+      animation:thinking 1.4s infinite ease-in-out;
       flex-shrink:0;
+      box-shadow:0 0 8px rgba(34,211,238,0.6);
     }
     .thinking-dot:nth-child(1) {
       animation-delay:0s;
@@ -217,19 +220,24 @@
     }
     @keyframes thinking {
       0%, 60%, 100% { 
-        transform:translateY(0); 
-        opacity:0.5; 
+        transform:translateY(0) scale(1); 
+        opacity:0.6; 
       }
       30% { 
-        transform:translateY(-8px); 
+        transform:translateY(-10px) scale(1.1); 
         opacity:1; 
       }
     }
     .thinking-text {
       color:var(--accent);
       font-style:italic;
-      font-size:14px;
+      font-size:15px;
       font-weight:500;
+      text-shadow:0 0 8px rgba(34,211,238,0.3);
+      letter-spacing:0.3px;
+    }
+    #thinking-indicator {
+      animation:slideIn 0.3s ease-out;
     }
   </style>
 </head>
