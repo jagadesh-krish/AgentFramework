@@ -97,6 +97,7 @@ async def log_requests(request: Request, call_next):
 connections: Dict[str, WebSocket] = {}
 user_context: Dict[str, dict] = {}  # Store user-specific context
 conversation_history: Dict[str, list] = {}  # Store conversation history per session: [{"role": "user", "content": "..."}, ...]
+processing_status: Dict[str, bool] = {}  # Track if a session is currently processing a message
 
 
 @app.websocket("/ws/chat")
@@ -106,6 +107,7 @@ async def chat_ws(websocket: WebSocket) -> None:
     connections[session_id] = websocket
     user_context[session_id] = {}  # Initialize context for the session
     conversation_history[session_id] = []  # Initialize conversation history
+    processing_status[session_id] = False  # Initialize processing status
     log.msg("Websocket connection accepted", session_id=session_id)
 
     bus: RabbitMQBus | None = RabbitMQBus()
@@ -118,6 +120,18 @@ async def chat_ws(websocket: WebSocket) -> None:
             data = json.loads(raw)
             user_message = data.get("content", raw)
             
+            # Check if already processing - block new messages
+            if processing_status.get(session_id, False):
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "content": "Please wait for the current response to complete before sending another message.",
+                    "session_id": session_id
+                }))
+                continue
+            
+            # Mark as processing
+            processing_status[session_id] = True
+            
             # Add user message to conversation history
             conversation_history[session_id].append({"role": "user", "content": user_message})
             
@@ -125,8 +139,6 @@ async def chat_ws(websocket: WebSocket) -> None:
                 "session_id": session_id,
                 "type": data.get("type", "TextMessage"),
                 "content": user_message
-                # "context": user_context[session_id],  # Include user context
-                # "conversation_history": conversation_history[session_id],  # Include conversation history
             }
             await bus.publish(REQUEST_QUEUE, payload)
     except WebSocketDisconnect:
@@ -144,6 +156,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         connections.pop(session_id, None)
         user_context.pop(session_id, None)  # Clean up context
         conversation_history.pop(session_id, None)  # Clean up history
+        processing_status.pop(session_id, None)  # Clean up processing status
 
 
 async def agent_worker() -> None:
@@ -198,21 +211,38 @@ async def startup_event():
             async for msg in bus.consume(f"{RESPONSE_QUEUE}"):
                 session_id = msg.get("session_id")
                 content = msg.get("content", "")
-                
-                # Update conversation history when response is received
-                # if session_id in conversation_history:
-                #     # Check if this response hasn't been added yet
-                #     last_msg = conversation_history[session_id][-1] if conversation_history[session_id] else None
-                #     if not last_msg or last_msg.get("role") != "assistant" or last_msg.get("content") != content:
-                #         conversation_history[session_id].append({"role": "assistant", "content": content})
+                is_streaming = msg.get("stream", False)
+                is_done = msg.get("done", False)
                 
                 log.msg("Active Connections", connections=list(connections.keys()))
                 websocket = connections.get(session_id)
                 if websocket:
-                    log.msg("Forwarding response to websocket", msg=msg, session_id=session_id)
-                    await websocket.send_text(json.dumps(msg))
+                    if is_streaming:
+                        # Forward streaming chunk immediately
+                        await websocket.send_text(json.dumps(msg))
+                        
+                        # If this is the final chunk, mark processing as complete
+                        if is_done:
+                            processing_status[session_id] = False
+                            # Update conversation history with full content
+                            if session_id in conversation_history:
+                                full_content = msg.get("full_content", "")
+                                conversation_history[session_id].append({"role": "assistant", "content": full_content})
+                            log.msg("Streaming complete", session_id=session_id)
+                    else:
+                        # Non-streaming response
+                        log.msg("Forwarding response to websocket", msg=msg, session_id=session_id)
+                        await websocket.send_text(json.dumps(msg))
+                        processing_status[session_id] = False
+                        
+                        # Update conversation history when response is received
+                        if session_id in conversation_history:
+                            conversation_history[session_id].append({"role": "assistant", "content": content})
                 else:
                     log.msg("No active websocket for session", session_id=session_id)
+                    # Still mark as not processing even if no connection
+                    if is_done:
+                        processing_status[session_id] = False
 
     consumer_task = asyncio.create_task(forward_responses())
 

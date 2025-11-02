@@ -66,28 +66,103 @@ async def handle_message(bus, msg):
     log = get_logger()
     session_id = msg.get("session_id")
     content = msg.get("content", "")
-    # history = msg.get("conversation_history", [])
     agent = await create_moderator_agent()
     try:
-        # Use run with conversation history if the agent supports it
+        # Get conversation thread for context
         conversation_thread = await get_thread_for_session(log, session_id, agent)
-        response = await agent.run(content, thread=conversation_thread)
-        resp_text = (
-            json.dumps(response, default=str, ensure_ascii=False)
-            if not isinstance(response, str)
-            else response
-        )
-        await save_thread_for_session(log, session_id, conversation_thread)
-        log.msg("Publishing response to response queue", response_queue=RESPONSE_QUEUE, session_id=session_id)
-        await bus.publish(
-            f"{RESPONSE_QUEUE}",
-            {"content": resp_text, "source": "agent", "session_id": session_id},
-        )
+        
+        # Use run_stream for streaming responses
+        accumulated_text = ""
+        chunk_count = 0
+        
+        try:
+            async for update in agent.run_stream(content, thread=conversation_thread):
+                # Extract chunk content from update
+                # The update structure may vary, try common attributes
+                chunk = None
+                
+                if hasattr(update, 'content') and update.content:
+                    chunk = update.content
+                elif hasattr(update, 'text') and update.text:
+                    chunk = update.text
+                elif hasattr(update, 'message') and hasattr(update.message, 'content'):
+                    chunk = update.message.content
+                elif isinstance(update, str):
+                    chunk = update
+                elif isinstance(update, dict):
+                    chunk = update.get('content') or update.get('text') or update.get('message', {}).get('content', '')
+                
+                if chunk:
+                    accumulated_text += chunk
+                    chunk_count += 1
+                    
+                    # Send streaming chunk to response queue
+                    await bus.publish(
+                        f"{RESPONSE_QUEUE}",
+                        {
+                            "content": chunk,
+                            "source": "agent",
+                            "session_id": session_id,
+                            "stream": True,
+                            "done": False
+                        },
+                    )
+                    log.debug("Sent streaming chunk", chunk_num=chunk_count, session_id=session_id)
+            
+            # Send final message indicating streaming is complete
+            await bus.publish(
+                f"{RESPONSE_QUEUE}",
+                {
+                    "content": "",
+                    "source": "agent",
+                    "session_id": session_id,
+                    "stream": True,
+                    "done": True,
+                    "full_content": accumulated_text
+                },
+            )
+            
+            # Save thread with final accumulated text
+            await save_thread_for_session(log, session_id, conversation_thread)
+            log.msg("Streaming complete", 
+                   session_id=session_id, 
+                   chunks_sent=chunk_count,
+                   total_length=len(accumulated_text))
+            
+        except AttributeError as attr_error:
+            # If run_stream doesn't exist, fallback to run
+            log.warning("run_stream not available, falling back to run", error=str(attr_error))
+            response = await agent.run(content, thread=conversation_thread)
+            resp_text = (
+                json.dumps(response, default=str, ensure_ascii=False)
+                if not isinstance(response, str)
+                else response
+            )
+            await save_thread_for_session(log, session_id, conversation_thread)
+            await bus.publish(
+                f"{RESPONSE_QUEUE}",
+                {"content": resp_text, "source": "agent", "session_id": session_id, "stream": False, "done": True},
+            )
+        except Exception as stream_error:
+            # Handle streaming errors and fallback
+            log.error("Streaming error, falling back to run", error=str(stream_error), session_id=session_id)
+            response = await agent.run(content, thread=conversation_thread)
+            resp_text = (
+                json.dumps(response, default=str, ensure_ascii=False)
+                if not isinstance(response, str)
+                else response
+            )
+            await save_thread_for_session(log, session_id, conversation_thread)
+            await bus.publish(
+                f"{RESPONSE_QUEUE}",
+                {"content": resp_text, "source": "agent", "session_id": session_id, "stream": False, "done": True},
+            )
+            
     except Exception as e:
         log.error("Error processing message", error=str(e), session_id=session_id)
         await bus.publish(
             f"{RESPONSE_QUEUE}",
-            {"content": f"Error: {e}", "source": "agent", "session_id": session_id},
+            {"content": f"Error: {e}", "source": "agent", "session_id": session_id, "stream": False, "done": True},
         )
 
 

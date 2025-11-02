@@ -14,6 +14,9 @@
   let ws = null;
   let connected = false;
   let thinkingIndicatorId = null;
+  let isProcessing = false;
+  let currentAssistantMessage = null;
+  let accumulatedText = '';
 
   function wsUrl() {
     const loc = window.location;
@@ -89,11 +92,67 @@
       
       console.log('Message received:', data);
       
-      // Remove thinking indicator if it exists
-      removeThinkingIndicator();
+      // Handle error messages
+      if (data.type === 'error') {
+        removeThinkingIndicator();
+        isProcessing = false;
+        sendBtn.disabled = false;
+        inputEl.disabled = false;
+        console.warn('Error from server:', data.content);
+        // Show error to user
+        appendMessage('assistant', `⚠️ ${data.content}`);
+        return;
+      }
       
-      // Append assistant message
-      appendMessage('assistant', data.content ?? '');
+      const isStreaming = data.stream === true;
+      const isDone = data.done === true;
+      
+      if (isStreaming) {
+        // Handle streaming chunks
+        if (isDone) {
+          // Final chunk received - streaming complete
+          removeThinkingIndicator();
+          isProcessing = false;
+          sendBtn.disabled = false;
+          inputEl.disabled = false;
+          
+          // Update final message with full content if provided
+          const fullContent = data.full_content || accumulatedText;
+          if (currentAssistantMessage) {
+            currentAssistantMessage.querySelector('.bubble').textContent = fullContent;
+          }
+          
+          accumulatedText = '';
+          currentAssistantMessage = null;
+          console.log('Streaming complete');
+        } else {
+          // Streaming chunk - accumulate text
+          const chunk = data.content || '';
+          accumulatedText += chunk;
+          
+          // Remove thinking indicator on first chunk
+          if (thinkingIndicatorId) {
+            removeThinkingIndicator();
+          }
+          
+          // Create or update assistant message
+          if (!currentAssistantMessage) {
+            currentAssistantMessage = appendMessage('assistant', accumulatedText);
+          } else {
+            currentAssistantMessage.querySelector('.bubble').textContent = accumulatedText;
+            chatEl.scrollTop = chatEl.scrollHeight;
+          }
+        }
+      } else {
+        // Non-streaming response (fallback)
+        removeThinkingIndicator();
+        isProcessing = false;
+        sendBtn.disabled = false;
+        inputEl.disabled = false;
+        
+        // Append assistant message
+        appendMessage('assistant', data.content ?? '');
+      }
     };
   }
 
@@ -204,6 +263,19 @@
   function sendMessage(text) {
     if (!text || !text.trim()) return;
     
+    // Block if already processing
+    if (isProcessing) {
+      console.log('Message blocked: already processing');
+      return;
+    }
+    
+    // Set processing state
+    isProcessing = true;
+    sendBtn.disabled = true;
+    inputEl.disabled = true;
+    accumulatedText = '';
+    currentAssistantMessage = null;
+    
     // Append user message
     appendMessage('user', text.trim());
     
@@ -234,14 +306,13 @@
     const text = inputEl.value;
     if (!text || !text.trim()) return;
     
-    inputEl.value = '';
-    sendBtn.disabled = true;
-    sendMessage(text);
+    // Block if already processing
+    if (isProcessing) {
+      return;
+    }
     
-    // Re-enable button after a short delay
-    setTimeout(() => {
-      sendBtn.disabled = !connected;
-    }, 300);
+    inputEl.value = '';
+    sendMessage(text);
   });
 
   inputEl.addEventListener('keydown', (e) => {
