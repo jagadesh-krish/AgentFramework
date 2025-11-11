@@ -107,7 +107,7 @@ async def handle_message(bus, msg):
                             "done": False
                         },
                     )
-                    log.debug("Sent streaming chunk", chunk_num=chunk_count, session_id=session_id)
+                    # log.debug("Sent streaming chunk", chunk_num=chunk_count, session_id=session_id)
             
             # Send final message indicating streaming is complete
             await bus.publish(

@@ -14,7 +14,6 @@ from aiofiles import os as aio_os
 from fastapi.staticfiles import StaticFiles
 import structlog
 
-from agentframework.agent import restaurant_agent
 from agentframework.service_layer.chat_handlers import RabbitMQBus, REQUEST_QUEUE, RESPONSE_QUEUE
 from routes import router
 
@@ -157,46 +156,6 @@ async def chat_ws(websocket: WebSocket) -> None:
         user_context.pop(session_id, None)  # Clean up context
         conversation_history.pop(session_id, None)  # Clean up history
         processing_status.pop(session_id, None)  # Clean up processing status
-
-
-async def agent_worker() -> None:
-    bus = RabbitMQBus()
-    await bus.connect()
-    try:
-        log.info("Started chat consumer for request queue")
-        async for msg in bus.consume(REQUEST_QUEUE):
-            session_id = msg.get("session_id")
-            content = msg.get("content", "")
-            # history = msg.get("conversation_history", [])
-            try:
-                # Run the RestaurantAgent with conversation history
-                # The agent framework should handle history automatically through chat_client
-                response = restaurant_agent.run(input=content)
-                # Safely serialize in case response is a complex object
-                if isinstance(response, str):
-                    resp_text = response
-                elif hasattr(response, "content") and isinstance(getattr(response, "content"), str):
-                    resp_text = getattr(response, "content")
-                elif hasattr(response, "output") and isinstance(getattr(response, "output"), str):
-                    resp_text = getattr(response, "output")
-                else:
-                    try:
-                        resp_text = json.dumps(response, default=str, ensure_ascii=False)
-                    except Exception:
-                        resp_text = str(response)
-                
-                # Add assistant response to conversation history
-                # if session_id in conversation_history:
-                #     conversation_history[session_id].append({"role": "assistant", "content": resp_text})
-                
-                await bus.publish(f"{RESPONSE_QUEUE}.{session_id}", {"content": resp_text, "source": "agent", "session_id": session_id})
-            except Exception as e:
-                error_msg = f"Error: {e}"
-                # if session_id in conversation_history:
-                #     conversation_history[session_id].append({"role": "assistant", "content": error_msg})
-                await bus.publish(f"{RESPONSE_QUEUE}.{session_id}", {"content": error_msg, "source": "agent", "session_id": session_id})
-    finally:
-        await bus.close()
 
 
 @app.on_event("startup")
