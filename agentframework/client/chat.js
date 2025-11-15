@@ -17,6 +17,7 @@
   let isProcessing = false;
   let currentAssistantMessage = null;
   let accumulatedText = '';
+  let thinkingStepsContainer = null;
 
   function wsUrl() {
     const loc = window.location;
@@ -95,12 +96,20 @@
       // Handle error messages
       if (data.type === 'error') {
         removeThinkingIndicator();
+        removeThinkingSteps();
         isProcessing = false;
         sendBtn.disabled = false;
         inputEl.disabled = false;
         console.warn('Error from server:', data.content);
         // Show error to user
         appendMessage('assistant', `⚠️ ${data.content}`);
+        return;
+      }
+      
+      // Handle thinking steps
+      if (data.type === 'thinking_step') {
+        console.log('Received thinking step:', data.step);
+        handleThinkingStep(data.step);
         return;
       }
       
@@ -112,6 +121,7 @@
         if (isDone) {
           // Final chunk received - streaming complete
           removeThinkingIndicator();
+          removeThinkingSteps();
           isProcessing = false;
           sendBtn.disabled = false;
           inputEl.disabled = false;
@@ -124,14 +134,17 @@
           
           accumulatedText = '';
           currentAssistantMessage = null;
+          thinkingStepsContainer = null;
           console.log('Streaming complete');
         } else {
           // Streaming chunk - accumulate text
           const chunk = data.content || '';
           accumulatedText += chunk;
           
-          // Remove thinking indicator on first chunk
+          // Remove thinking indicator on first chunk (but keep steps visible briefly)
           if (thinkingIndicatorId) {
+            // Clear steps first, then remove indicator
+            removeThinkingSteps();
             removeThinkingIndicator();
           }
           
@@ -146,6 +159,7 @@
       } else {
         // Non-streaming response (fallback)
         removeThinkingIndicator();
+        removeThinkingSteps();
         isProcessing = false;
         sendBtn.disabled = false;
         inputEl.disabled = false;
@@ -206,16 +220,23 @@
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     
-    // Create thinking container
+    // Create thinking container - make it more compact
     const thinkingContainer = document.createElement('div');
     thinkingContainer.className = 'thinking';
+    thinkingContainer.style.display = 'flex';
+    thinkingContainer.style.alignItems = 'center';
+    thinkingContainer.style.gap = '8px';
     
     // Add animated dots first
+    const dotsContainer = document.createElement('div');
+    dotsContainer.style.display = 'flex';
+    dotsContainer.style.gap = '4px';
     for (let i = 0; i < 3; i++) {
       const dot = document.createElement('div');
       dot.className = 'thinking-dot';
-      thinkingContainer.appendChild(dot);
+      dotsContainer.appendChild(dot);
     }
+    thinkingContainer.appendChild(dotsContainer);
     
     // Add thinking text after dots
     const thinkingText = document.createElement('span');
@@ -223,13 +244,23 @@
     thinkingText.textContent = 'AI is thinking...';
     thinkingContainer.appendChild(thinkingText);
     
+    // Create container for thinking steps (will be added below the thinking text)
+    const stepsList = document.createElement('div');
+    stepsList.className = 'thinking-steps-list-inline';
+    stepsList.id = 'thinking-steps-list-inline';
+    stepsList.style.display = 'none'; // Hide until steps are added
+    
     // Assemble the message bubble
     bubble.appendChild(thinkingContainer);
+    bubble.appendChild(stepsList);
     row.appendChild(roleEl);
     row.appendChild(bubble);
     
     // Add to chat container
     chatEl.appendChild(row);
+    
+    // Store reference to steps list
+    thinkingStepsContainer = stepsList;
     
     // Scroll to bottom to show the indicator
     chatEl.scrollTop = chatEl.scrollHeight;
@@ -260,6 +291,140 @@
     }
   }
 
+  function handleThinkingStep(step) {
+    console.log('Handling thinking step:', step);
+    
+    // Ensure thinking indicator exists (it should be created when message is sent)
+    if (!thinkingIndicatorId) {
+      showThinkingIndicator();
+    }
+    
+    // Get or create thinking steps container from the thinking indicator
+    if (!thinkingStepsContainer) {
+      const indicator = document.getElementById('thinking-indicator');
+      if (indicator) {
+        const stepsList = indicator.querySelector('.thinking-steps-list-inline');
+        if (stepsList) {
+          thinkingStepsContainer = stepsList;
+        } else {
+          // Create it if it doesn't exist
+          const bubble = indicator.querySelector('.bubble');
+          if (bubble) {
+            const stepsList = document.createElement('div');
+            stepsList.className = 'thinking-steps-list-inline';
+            stepsList.id = 'thinking-steps-list-inline';
+            bubble.appendChild(stepsList);
+            thinkingStepsContainer = stepsList;
+          }
+        }
+      }
+    }
+    
+    if (!thinkingStepsContainer) {
+      console.warn('Could not find thinking steps container');
+      return;
+    }
+    
+    // Show the steps list when first step is added
+    if (thinkingStepsContainer.style.display === 'none' || thinkingStepsContainer.children.length === 0) {
+      thinkingStepsContainer.style.display = 'flex';
+    }
+    
+    // Add step to the list
+    const stepEl = document.createElement('div');
+    stepEl.className = `thinking-step-inline thinking-step-${step.status}`;
+    
+    let stepContent = '';
+    if (step.type === 'function_call' && step.function_name) {
+      stepContent = `
+        <div class="thinking-step-icon-inline">🔧</div>
+        <div class="thinking-step-content-inline">
+          <div class="thinking-step-title-inline">Calling ${step.function_name}</div>
+          ${step.arguments && step.arguments !== 'N/A' ? `<div class="thinking-step-details-inline">Arguments: ${step.arguments}</div>` : ''}
+          ${step.result ? `<div class="thinking-step-result-inline">Result: ${step.result}</div>` : ''}
+        </div>
+        <div class="thinking-step-status-inline ${step.status}">${step.status === 'calling' ? '⏳' : '✓'}</div>
+      `;
+    } else if (step.type === 'function_call' && step.result) {
+      // Function result without function name
+      stepContent = `
+        <div class="thinking-step-icon-inline">✓</div>
+        <div class="thinking-step-content-inline">
+          <div class="thinking-step-title-inline">Function completed</div>
+          <div class="thinking-step-result-inline">Result: ${step.result}</div>
+        </div>
+        <div class="thinking-step-status-inline completed">✓</div>
+      `;
+    } else if (step.type === 'ai_thinking') {
+      stepContent = `
+        <div class="thinking-step-icon-inline">🤖</div>
+        <div class="thinking-step-content-inline">
+          <div class="thinking-step-title-inline">${step.message || 'Processing...'}</div>
+        </div>
+        <div class="thinking-step-status-inline ${step.status}">${step.status === 'thinking' ? '⏳' : '✓'}</div>
+      `;
+    }
+    
+    if (!stepContent) {
+      console.warn('No content generated for thinking step:', step);
+      return;
+    }
+    
+    stepEl.innerHTML = stepContent;
+    
+    // Use function_id if available, otherwise use function_name for matching
+    const stepKey = step.function_id || step.function_name;
+    
+    // Set data attribute for matching
+    if (stepKey) {
+      stepEl.setAttribute('data-function', stepKey);
+    }
+    
+    // Update existing step if it's the same function
+    // For function results, try to find the matching calling step
+    if (stepKey) {
+      const existingStep = thinkingStepsContainer.querySelector(`[data-function="${stepKey}"]`);
+      if (existingStep) {
+        // Update the existing step
+        existingStep.outerHTML = stepEl.outerHTML;
+      } else {
+        // New step, add it
+        thinkingStepsContainer.appendChild(stepEl);
+      }
+    } else if (step.status === 'completed' && step.result) {
+      // For completed steps without a key, try to find the last "calling" step
+      const lastCallingStep = thinkingStepsContainer.querySelector('.thinking-step-calling');
+      if (lastCallingStep) {
+        // Update the last calling step to show it's completed
+        lastCallingStep.outerHTML = stepEl.outerHTML;
+      } else {
+        // No matching step found, add as new
+        thinkingStepsContainer.appendChild(stepEl);
+      }
+    } else {
+      thinkingStepsContainer.appendChild(stepEl);
+    }
+    
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function removeThinkingSteps() {
+    // Clear inline thinking steps from the thinking indicator
+    if (thinkingStepsContainer) {
+      thinkingStepsContainer.innerHTML = '';
+      thinkingStepsContainer = null;
+    }
+    // Also check if there's a separate container (legacy)
+    const container = document.getElementById('thinking-steps-container');
+    if (container) {
+      container.style.opacity = '0';
+      container.style.transition = 'opacity 0.3s ease-out';
+      setTimeout(() => {
+        container.remove();
+      }, 300);
+    }
+  }
+
   function sendMessage(text) {
     if (!text || !text.trim()) return;
     
@@ -275,6 +440,7 @@
     inputEl.disabled = true;
     accumulatedText = '';
     currentAssistantMessage = null;
+    thinkingStepsContainer = null;
     
     // Append user message
     appendMessage('user', text.trim());

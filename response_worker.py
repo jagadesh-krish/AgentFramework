@@ -75,22 +75,175 @@ async def handle_message(bus, msg):
         accumulated_text = ""
         chunk_count = 0
         
+        # Send initial thinking step
+        await bus.publish(
+            f"{RESPONSE_QUEUE}",
+            {
+                "type": "thinking_step",
+                "step": {
+                    "type": "ai_thinking",
+                    "message": "Analyzing your request...",
+                    "status": "thinking"
+                },
+                "source": "agent",
+                "session_id": session_id,
+                "stream": False,
+                "done": False
+            },
+        )
+        active_function_calls = {}  # Track function calls by their ID or index
+        
         try:
             async for update in agent.run_stream(content, thread=conversation_thread):
-                # Extract chunk content from update
-                # The update structure may vary, try common attributes
+                # Check for function calls and results in the update contents
+                if hasattr(update, 'contents') and update.contents:
+                    for content_item in update.contents:
+                        # Get content type - check class name, type attribute
+                        content_type = None
+                        class_name = None
+                        
+                        # Check class name for FunctionCallContent or FunctionResultContent
+                        if hasattr(content_item, '__class__'):
+                            class_name = content_item.__class__.__name__
+                        
+                        # Check type attribute
+                        if hasattr(content_item, 'type'):
+                            content_type = content_item.type
+
+                        
+                        # Log for debugging
+                        # log.debug("Processing content item", 
+                        #     class_name=class_name, 
+                        #     content_type=content_type,
+                        #     has_function=True if content_type == 'function_call' else False,
+                        #     has_result=True if content_type == 'function_result' else False
+                        # )
+                        
+                        # Handle FunctionCallContent - check by class name or type
+                        is_function_call = (
+                            class_name and 'FunctionCall' in class_name
+                        ) or (
+                            content_type and ('function_call' in str(content_type).lower())
+                        ) 
+                        
+                        # Handle FunctionResultContent - check by class name or type
+                        is_function_result = (
+                            class_name and 'FunctionResult' in class_name
+                        ) or (
+                            content_type and ('function_result' in str(content_type).lower())
+                        ) or (
+                            hasattr(content_item, 'result') and not is_function_call
+                        )
+                        
+                        if is_function_call:
+                            func_name = None
+                            func_args = None
+                            func_id = None
+                            
+                            # Try to get function name and ID
+                            if hasattr(content_item, 'name'):
+                                func_name = content_item.name
+                            if hasattr(content_item, 'arguments'):
+                                func_args = content_item.arguments
+                            if hasattr(content_item, 'call_id'):
+                                func_id = content_item.call_id
+                            
+                            if class_name and 'FunctionCall' in class_name:
+                                # Store function call for later matching with results
+                                if func_id:
+                                    active_function_calls[func_id] = {
+                                        "function_name": func_name,
+                                        "arguments": func_args
+                                    }
+                                
+                                # Send thinking step for function call
+                                step = {
+                                    "type": "function_call",
+                                    "function_name": str(func_name),
+                                    "arguments": str(func_args) if func_args else "N/A",
+                                    "status": "calling",
+                                    "function_id": str(func_id) if func_id else None
+                                }
+                                await bus.publish(
+                                    f"{RESPONSE_QUEUE}",
+                                    {
+                                        "type": "thinking_step",
+                                        "step": step,
+                                        "source": "agent",
+                                        "session_id": session_id,
+                                        "stream": False,
+                                        "done": False
+                                    },
+                                )
+                                log.msg("Sent thinking step for function call", function_name=func_name, session_id=session_id)
+                        
+                        if is_function_result:
+                            result = None
+                            func_id = None
+                            func_name = None
+                            
+                            # Try to get function ID to match with the call
+                            if hasattr(content_item, 'call_id'):
+                                func_id = content_item.call_id
+                            
+                            if hasattr(content_item, 'result'):
+                                result = content_item.result
+                            
+                            # Try to get function name from stored calls
+                            if func_id and func_id in active_function_calls:
+                                func_name = active_function_calls[func_id]["function_name"]
+                            
+                            if result:
+                                # Send thinking step for function result
+                                step = {
+                                    "type": "function_call",
+                                    "function_name": str(func_name) if func_name else "Function",
+                                    "status": "completed",
+                                    "result": str(result)[:500],  # Truncate long results
+                                    "function_id": str(func_id) if func_id else None
+                                }
+                                await bus.publish(
+                                    f"{RESPONSE_QUEUE}",
+                                    {
+                                        "type": "thinking_step",
+                                        "step": step,
+                                        "source": "agent",
+                                        "session_id": session_id,
+                                        "stream": False,
+                                        "done": False
+                                    },
+                                )
+                                log.msg("Sent thinking step for function result", function_name=func_name or "unknown", session_id=session_id)
+                                
+                                # Clean up tracked function call
+                                if func_id and func_id in active_function_calls:
+                                    del active_function_calls[func_id]
+                
+                # Extract text content from update
                 chunk = None
                 
-                if hasattr(update, 'content') and update.content:
-                    chunk = update.content
-                elif hasattr(update, 'text') and update.text:
+                # Use the text property which concatenates all TextContent
+                if hasattr(update, 'text') and update.text:
                     chunk = update.text
-                elif hasattr(update, 'message') and hasattr(update.message, 'content'):
-                    chunk = update.message.content
-                elif isinstance(update, str):
-                    chunk = update
-                elif isinstance(update, dict):
-                    chunk = update.get('content') or update.get('text') or update.get('message', {}).get('content', '')
+                elif hasattr(update, 'contents') and update.contents:
+                    # Extract text from TextContent items
+                    text_parts = []
+                    for content_item in update.contents:
+                        content_type = None
+                        if hasattr(content_item, 'type'):
+                            content_type = content_item.type
+                        elif isinstance(content_item, dict):
+                            content_type = content_item.get('type')
+                        
+                        # Only extract text from TextContent, not function calls/results
+                        if content_type == 'text' or (hasattr(content_item, 'text') and content_type != 'function_call' and content_type != 'function_result'):
+                            if hasattr(content_item, 'text'):
+                                text_parts.append(content_item.text)
+                            elif isinstance(content_item, dict):
+                                text_parts.append(content_item.get('text', ''))
+                    
+                    if text_parts:
+                        chunk = ''.join(text_parts)
                 
                 if chunk:
                     accumulated_text += chunk
