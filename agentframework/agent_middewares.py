@@ -49,7 +49,8 @@ async def timing_middleware(
     next: Callable[[AgentRunContext], Awaitable[None]],
 ) -> None:
     """Tracks execution time for entire agent run."""
-    log.bind(func=timing_middleware.__qualname__)
+    global log  # Ensure the global log variable is used
+    log = log.bind(func=timing_middleware.__qualname__)
     start_time = datetime.now()
     
     log.msg(f"\n⏱️  [TIMING] Started at {start_time.strftime('%H:%M:%S')}")
@@ -73,7 +74,8 @@ async def security_middleware(
     next: Callable[[AgentRunContext], Awaitable[None]],
 ) -> None:
     """Blocks requests containing sensitive keywords."""
-    log.msg(func=security_middleware.__qualname__)
+    global log  # Ensure the global log variable is used
+    log = log.bind(func=security_middleware.__qualname__)
     # Check the last message for blocked content
     if context.messages:
         last_message = context.messages[-1]
@@ -106,7 +108,8 @@ async def function_logger_middleware(
     next: Callable[[FunctionInvocationContext], Awaitable[None]],
 ) -> None:
     """Logs every function/tool call with arguments and results."""
-    log.msg(func=function_logger_middleware.__qualname__)
+    global log  # Ensure the global log variable is used
+    log = log.bind(func=function_logger_middleware.__qualname__)
     log.msg(f"\n🔧 [FUNCTION] Calling tool: {context.function.name}")
     log.msg(f"🔧 [FUNCTION] Arguments: {context.arguments}")
     
@@ -127,7 +130,8 @@ async def token_counter_middleware(
     next: Callable[[ChatContext], Awaitable[None]],
 ) -> None:
     """Estimates and logs token usage for AI calls."""
-    log.msg(func=token_counter_middleware.__qualname__)
+    global log  # Ensure the global log variable is used
+    log = log.bind(func=token_counter_middleware.__qualname__)
     # Estimate input tokens (rough: 1 token ≈ 4 characters)
     total_chars = sum(len(str(msg)) for msg in context.messages)
     estimated_input_tokens = total_chars // 4
