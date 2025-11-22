@@ -161,7 +161,7 @@ async def chat_ws(websocket: WebSocket) -> None:
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
-    log.info("Resto Chef Chatbot System starting up...")
+    log.info("ChatVoyager starting up...")
     log.info("Application startup complete")
     bus = RabbitMQBus()
     await bus.connect()
@@ -172,8 +172,6 @@ async def startup_event():
                 content = msg.get("content", "")
                 is_streaming = msg.get("stream", False)
                 is_done = msg.get("done", False)
-                
-                log.msg("Active Connections", connections=list(connections.keys()))
                 websocket = connections.get(session_id)
                 if websocket:
                     if is_streaming:
@@ -209,7 +207,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Application shutdown event"""
-    log.info("Resto Chef Chatbot System shutting down...")
+    log.info("ChatVoyager shutting down...")
 
 if __name__ == "__main__":
     import asyncio

@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+from agentframework.tools import get_places_of_interest
 from .model_client import create_model_client_local
 from dotenv import load_dotenv
 from agent_framework import ChatAgent, ai_function
@@ -27,13 +28,26 @@ async def create_moderator_agent():
         NOTE: Always use the WeatherAgent to get weather information when the user asks about weather conditions at a location.
         Keep your responses concise and to the point. Do not include unnecessary details. Give factual information only. Do not fabricate information.
         If multiple agents or tool calls are involved in answering a query, synthesize their responses into a coherent final answer for the user.
+        ****Always ask user's current location to make logical answers****
+        ****If user's current location is not provided in the query, then try to identify the location of where he is, from context and previous interactions, if still not found, prompt the user to provide his current location before proceeding further.****
+        ****Always think about distance between locations while suggesting places to visit or travel plans/itineraries. Think about travel time, convenience, and proximity while suggesting places to visit.****
         
+                
         Tools and Agent Capabilities:
         - WeatherAgent: Use this agent to get weather information for any location-based queries from the user.
                         The WeatherAgent can provide current weather details as well as forecast information.
+        - get_places_of_interest: Use this tool to get places of interest in a given location based on user queries or recommending places to visit.
+                                  If the user asks about places to visit, attractions, or points of interest in a location, use this tool to fetch relevant information.
+                                  If no results are found, inform the user accordingly.
+                                  Display the results in a user-friendly format.
+                                  If the tool returns a list of places, summarize the key details for the user in a readable manner.
+                                  If the user requests recommendations for places to visit, provide a curated list based on popular attractions and user interests.
+                                  NOTE: If result fetched from the tool, contains irreleveant places which do not align with the user query, filter them out and provide only relevant places in the final response, if no relevant places are found, inform the user accordingly.
+                                  ****DO NOT RESPOND OR MENTION ABOUT TOOL OUTPUT DIRECTLY TO THE USER****
+                                  ****DO NOT SHARE EXCLUDED OR IRRELEVANT INFORMATION TO THE USER****
         """,
         chat_client=create_model_client_local(),
-        tools=[weather_agent.as_tool()],
+        tools=[weather_agent.as_tool(), get_places_of_interest],
         middleware=[
             timing_middleware,          # Agent middleware #1
             security_middleware,        # Agent middleware #2
