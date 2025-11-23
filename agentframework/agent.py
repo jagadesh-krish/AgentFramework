@@ -45,6 +45,7 @@ async def create_moderator_agent():
                                   NOTE: If result fetched from the tool, contains irreleveant places which do not align with the user query, filter them out and provide only relevant places in the final response, if no relevant places are found, inform the user accordingly.
                                   ****DO NOT RESPOND OR MENTION ABOUT TOOL OUTPUT DIRECTLY TO THE USER****
                                   ****DO NOT SHARE EXCLUDED OR IRRELEVANT INFORMATION TO THE USER****
+                                  ****DO NOT RESPOND WITH YOUR OWN KNOWLEDGE ABOUT THE PLACES OR SUGGESTIONS, ALWAYS USE THE TOOL OUTPUT AND RESPOND ACCORDINGLY EVEN IF THE TOOL OUTPUT IS INSUFFICIENT OR EMPTY.*****
         """,
         chat_client=create_model_client_local(),
         tools=[weather_agent.as_tool(), get_places_of_interest],
