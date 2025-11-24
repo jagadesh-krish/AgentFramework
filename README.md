@@ -50,7 +50,6 @@ agentframework/
 │   │   ├── enums.py
 │   │   ├── tools.py
 │   ├── __init__.py
-├── loadenv.bat
 ├── main.py
 ├── poetry.lock
 ├── pyproject.toml
