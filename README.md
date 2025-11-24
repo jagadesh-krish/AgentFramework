@@ -33,20 +33,34 @@ Welcome to the **ChatVoyager** project! This innovative chatbot is designed to a
 ```
 agentframework/
 ├── agentframework/
+│   ├── agent.py
+│   ├── agent_middewares.py
 │   ├── client/
-│   │   ├── index.html
 │   │   ├── chat.js
+│   │   ├── chatbot-logo.png
+│   │   ├── index.html
+│   ├── model_client.py
+│   ├── response_schema.py
 │   ├── service_layer/
 │   │   ├── chat_handlers.py
 │   │   ├── http_handlers.py
 │   ├── tools.py
-│   ├── agent.py
-│   ├── response_schema.py
-├── RAG/
-│   ├── poi_in_india.py
+│   ├── weather_agents/
+│   │   ├── agents.py
+│   │   ├── enums.py
+│   │   ├── tools.py
+│   ├── __init__.py
 ├── main.py
-├── response_worker.py
+├── poetry.lock
+├── pyproject.toml
+├── RAG/
+│   ├── data/
+│   │   ├── india.json
+│   ├── poi_in_india.py
 ├── README.md
+├── response_worker.py
+├── routes.py
+├── threads/
 ```
 
 ## 🖥️ Installation

@@ -173,4 +173,6 @@ config.local.py
 secrets.yaml
 secrets.yml
 
-threads/
+threads/*
+
+!threads/
